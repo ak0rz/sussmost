@@ -47,7 +47,12 @@ cd sussmost
 ./install.sh
 ```
 
-The installer puts `sussmost` in `~/.local/bin/` and sets up bash completions. Make sure `~/.local/bin` is in your `PATH`.
+The installer puts `sussmost` in `~/.local/bin/` and auto-detects your shells to install completions for bash, zsh, and/or fish. Make sure `~/.local/bin` is in your `PATH`.
+
+Completion install locations:
+- **bash:** `~/.local/share/bash-completion/completions/sussmost`
+- **zsh:** `~/.local/share/zsh/site-functions/_sussmost`
+- **fish:** `~/.config/fish/completions/sussmost.fish`
 
 ## Quick start
 
