@@ -11,9 +11,10 @@ _sussmost_completions() {
     local SUSSMOST_REPOS_FILE="$SUSSMOST_CONFIG_DIR/repos"
 
     # Top-level commands
-    local commands="hub repo start add list attach stop status help version"
+    local commands="hub repo start add list attach stop status recover help version"
     local hub_subcmds="start stop"
     local repo_subcmds="add clone list remove"
+    local recover_subcmds="enable disable"
 
     case "$cword" in
         1)
@@ -55,6 +56,10 @@ _sussmost_completions() {
                         sessions=$(ls "$SUSSMOST_SESSIONS_DIR" 2>/dev/null)
                         COMPREPLY=($(compgen -W "$sessions" -- "$cur"))
                     fi
+                    return
+                    ;;
+                recover)
+                    COMPREPLY=($(compgen -W "$recover_subcmds" -- "$cur"))
                     return
                     ;;
             esac

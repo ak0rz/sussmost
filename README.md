@@ -120,6 +120,9 @@ The hub Claude session has `sussmost` available as a tool and knows how to use i
 | `sussmost attach [session] [worktree]` | Attach to a session or specific worktree window |
 | `sussmost stop [session] [window]` | Stop a window or entire session |
 | `sussmost status` | Live status with process info |
+| `sussmost recover` | Recover all sessions after reboot/crash |
+| `sussmost recover enable` | Enable auto-recovery via systemd timer (checks every 60s) |
+| `sussmost recover disable` | Disable auto-recovery |
 
 ### Auto-detection
 
