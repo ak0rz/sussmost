@@ -159,9 +159,32 @@ _next_window_index() {
     echo $((max_idx + 1))
 }
 
+_gen_uuid() {
+    if command -v uuidgen >/dev/null 2>&1; then
+        uuidgen | tr '[:upper:]' '[:lower:]'
+    elif [[ -r /proc/sys/kernel/random/uuid ]]; then
+        cat /proc/sys/kernel/random/uuid
+    else
+        # Fallback: generate a v4-like UUID from /dev/urandom
+        od -x /dev/urandom | head -1 | awk '{OFS="-"; print $2$3,$4,$5,$6,$7$8$9}'
+    fi
+}
+
 _add_window_meta() {
     local session="$1" idx="$2" worktree="$3"
     echo "window:${idx}=${worktree}" >> "$(_session_file "$session")"
+}
+
+_set_session_uuid() {
+    local session="$1" worktree="$2" uuid="$3"
+    echo "uuid:${worktree}=${uuid}" >> "$(_session_file "$session")"
+}
+
+_get_session_uuid() {
+    local session="$1" worktree="$2" sf
+    sf="$(_session_file "$session")"
+    [[ -f "$sf" ]] || return 1
+    grep "^uuid:${worktree}=" "$sf" | tail -1 | cut -d= -f2-
 }
 
 _remove_window_meta() {
@@ -169,6 +192,7 @@ _remove_window_meta() {
     sf="$(_session_file "$session")"
     [[ -f "$sf" ]] || return 0
     sed -i "/^window:.*=${worktree}$/d" "$sf"
+    sed -i "/^uuid:${worktree}=/d" "$sf"
 }
 
 _detect_session() {
@@ -243,9 +267,14 @@ _hub_start() {
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
         "clear && echo '=== sussmost hub ===' && echo 'Starting Claude remote-control session...' && echo 'You can manage repos and sessions from Claude app.' && echo ''" Enter
 
+    # Generate session UUID for resumability
+    local hub_uuid
+    hub_uuid="$(_gen_uuid)"
+    echo "$hub_uuid" > "$SUSSMOST_CONFIG_DIR/hub-session-id"
+
     # Launch Claude with remote-control and system prompt about sussmost
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
-        "claude --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
+        "claude --session-id '${hub_uuid}' --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
 
     _info "hub started"
     _info "connect via Claude app to manage sessions remotely"
@@ -277,8 +306,17 @@ _hub_recover() {
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
         "clear && echo '=== sussmost hub (recovered) ===' && echo 'Resuming Claude remote-control session...' && echo ''" Enter
 
+    # Resume by UUID if available, otherwise start fresh
+    local hub_uuid_file="$SUSSMOST_CONFIG_DIR/hub-session-id"
+    local resume_flag=""
+    if [[ -f "$hub_uuid_file" ]]; then
+        local hub_uuid
+        hub_uuid="$(cat "$hub_uuid_file")"
+        resume_flag="--resume '${hub_uuid}'"
+    fi
+
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
-        "claude --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
+        "claude ${resume_flag} --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
 
     _info "hub recovered"
 }
@@ -493,11 +531,16 @@ cmd_add() {
     feature_prompt="${SUSSMOST_FEATURE_PROMPT//<WORKTREE>/$worktree_name}"
     feature_prompt="${feature_prompt//<SESSION>/$session_name}"
 
+    # Generate session UUID for resumability
+    local session_uuid
+    session_uuid="$(_gen_uuid)"
+
     # Launch Claude in worktree with remote-control and lifecycle system prompt
     tmux send-keys -t "${tmux_name}:${worktree_name}" \
-        "claude -w '${worktree_name}' --append-system-prompt \"${feature_prompt}\" remote-control --name '${session_name}/${worktree_name}'" Enter
+        "claude -w '${worktree_name}' --session-id '${session_uuid}' --append-system-prompt \"${feature_prompt}\" remote-control --name '${session_name}/${worktree_name}'" Enter
 
     _add_window_meta "$session_name" "$idx" "$worktree_name"
+    _set_session_uuid "$session_name" "$worktree_name" "$session_uuid"
     _info "added worktree window: ${session_name}/${worktree_name}"
 }
 
@@ -798,7 +841,7 @@ _recover_run() {
         tmux send-keys -t "${tmux_name}:control" \
             "clear && echo '=== sussmost: ${name} (recovered) ===' && echo 'Repo: ${repo_path}' && echo ''" Enter
 
-        # Recreate worktree windows with --resume
+        # Recreate worktree windows with --resume by UUID
         while IFS= read -r line; do
             [[ -z "$line" ]] && continue
             local wt
@@ -808,9 +851,17 @@ _recover_run() {
             feature_prompt="${SUSSMOST_FEATURE_PROMPT//<WORKTREE>/$wt}"
             feature_prompt="${feature_prompt//<SESSION>/$name}"
 
+            # Resume by UUID if available, otherwise start fresh
+            local resume_flag=""
+            local wt_uuid
+            wt_uuid="$(_get_session_uuid "$name" "$wt" || true)"
+            if [[ -n "$wt_uuid" ]]; then
+                resume_flag="--resume '${wt_uuid}'"
+            fi
+
             tmux new-window -t "$tmux_name" -n "$wt" -c "$repo_path"
             tmux send-keys -t "${tmux_name}:${wt}" \
-                "claude -w '${wt}' --append-system-prompt \"${feature_prompt}\" remote-control --name '${name}/${wt}'" Enter
+                "claude -w '${wt}' ${resume_flag} --append-system-prompt \"${feature_prompt}\" remote-control --name '${name}/${wt}'" Enter
             _info "  recovered window: ${name}/${wt}"
         done < <(_list_session_windows "$name")
 
