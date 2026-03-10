@@ -245,7 +245,7 @@ _hub_start() {
 
     # Launch Claude with remote-control and system prompt about sussmost
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
-        "claude remote-control --name \"sussmost-hub\" --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\"" Enter
+        "claude --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
 
     _info "hub started"
     _info "connect via Claude app to manage sessions remotely"
@@ -278,7 +278,7 @@ _hub_recover() {
         "clear && echo '=== sussmost hub (recovered) ===' && echo 'Resuming Claude remote-control session...' && echo ''" Enter
 
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
-        "claude remote-control --resume --name \"sussmost-hub\" --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\"" Enter
+        "claude --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
 
     _info "hub recovered"
 }
@@ -495,7 +495,7 @@ cmd_add() {
 
     # Launch Claude in worktree with remote-control and lifecycle system prompt
     tmux send-keys -t "${tmux_name}:${worktree_name}" \
-        "claude -w '${worktree_name}' remote-control --name '${session_name}/${worktree_name}' --append-system-prompt \"${feature_prompt}\"" Enter
+        "claude -w '${worktree_name}' --append-system-prompt \"${feature_prompt}\" remote-control --name '${session_name}/${worktree_name}'" Enter
 
     _add_window_meta "$session_name" "$idx" "$worktree_name"
     _info "added worktree window: ${session_name}/${worktree_name}"
@@ -810,7 +810,7 @@ _recover_run() {
 
             tmux new-window -t "$tmux_name" -n "$wt" -c "$repo_path"
             tmux send-keys -t "${tmux_name}:${wt}" \
-                "claude -w '${wt}' remote-control --resume --name '${name}/${wt}' --append-system-prompt \"${feature_prompt}\"" Enter
+                "claude -w '${wt}' --append-system-prompt \"${feature_prompt}\" remote-control --name '${name}/${wt}'" Enter
             _info "  recovered window: ${name}/${wt}"
         done < <(_list_session_windows "$name")
 
