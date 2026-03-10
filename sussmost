@@ -22,8 +22,10 @@ INSTALL_FISH_COMPLETIONS="$HOME/.config/fish/completions"
 
 # System prompt for feature worktree windows
 # <WORKTREE> and <SESSION> are replaced at runtime
-read -r -d '' SUSSMOST_FEATURE_PROMPT <<'SYSPROMPT' || true
-You are working in a git worktree named "<WORKTREE>" in sussmost session "<SESSION>".
+_write_feature_prompt() {
+    local worktree="$1" session="$2" dest="$3"
+    cat > "$dest" <<EOF
+You are working in a git worktree named "${worktree}" in sussmost session "${session}".
 
 == WORKTREE LIFECYCLE ==
 
@@ -32,7 +34,7 @@ SETUP (run these steps when starting work):
    git submodule update --init --recursive
 2. Absorb submodule git dirs into the parent repo:
    git submodule absorbgitdirs
-   This moves each submodule's .git directory into the parent's .git/modules/, replacing it with a gitfile pointer. This is CRITICAL — without it, submodule git data lives inside the worktree directory and will be permanently destroyed when the worktree is removed.
+   This moves each submodule .git directory into the parent .git/modules/, replacing it with a gitfile pointer. This is CRITICAL -- without it, submodule git data lives inside the worktree directory and will be permanently destroyed when the worktree is removed.
 3. Submodules will be in detached HEAD state pointing at the commit recorded by the parent repo. This is normal and expected.
 4. Create or check out your feature branch in this worktree.
 5. If submodules also need feature branches, check out the branch inside each submodule:
@@ -40,27 +42,35 @@ SETUP (run these steps when starting work):
 
 WORKING:
 - Make changes in submodules first, commit inside the submodule, then return to the parent repo and stage the submodule reference update with git add <submodule-path>.
-- Each worktree has its own independent working directory for submodules, but they share git object storage. Your changes won't affect other worktrees.
+- Each worktree has its own independent working directory for submodules, but they share git object storage. Your changes will not affect other worktrees.
 - If you switch branches and the new branch has different .gitmodules, re-run: git submodule update --init --recursive && git submodule absorbgitdirs
 
 CLEANUP (MANDATORY before worktree removal):
 You MUST complete ALL of these steps before allowing the worktree to be removed:
 1. Check all submodules for uncommitted changes:
-   git submodule foreach --recursive 'git status'
+   git submodule foreach --recursive git status
    If any submodule has uncommitted work, commit it first.
 2. Check all submodules for unpushed commits:
-   git submodule foreach --recursive 'git log --oneline @{upstream}..HEAD 2>/dev/null || echo "no upstream"'
+   git submodule foreach --recursive git log --oneline @{upstream}..HEAD
 3. Push all submodule branches that have changes:
-   Push submodules BEFORE the parent repo — otherwise the remote parent will reference submodule commits that don't exist on the remote yet.
-4. Push the parent repo's feature branch.
+   Push submodules BEFORE the parent repo -- otherwise the remote parent will reference submodule commits that do not exist on the remote yet.
+4. Push the parent repo feature branch.
 5. Only after all pushes succeed, the worktree can be removed. Note: worktree removal with submodules requires git worktree remove --force.
 
 == IMPORTANT CORNER CASES ==
-- git worktree move does NOT work with submodules — never attempt it
-- Submodules are in detached HEAD by default — always check out a named branch before making changes, or your commits will be unreachable after switching away
+- git worktree move does NOT work with submodules -- never attempt it
+- Submodules are in detached HEAD by default -- always check out a named branch before making changes, or your commits will be unreachable after switching away
 - After any branch switch, re-run git submodule update --init --recursive && git submodule absorbgitdirs to sync submodule state
 - For large submodules, use --depth=1 for shallow clones to save disk: git submodule update --init --recursive --depth=1
-SYSPROMPT
+EOF
+}
+
+_write_hub_prompt() {
+    local dest="$1"
+    cat > "$dest" <<'EOF'
+You are the sussmost hub controller. You have the sussmost CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.
+EOF
+}
 
 # ---------------------------------------------------------------------------
 # Utility functions
@@ -272,9 +282,14 @@ _hub_start() {
     hub_uuid="$(_gen_uuid)"
     echo "$hub_uuid" > "$SUSSMOST_CONFIG_DIR/hub-session-id"
 
-    # Launch Claude with remote-control and system prompt about sussmost
+    # Write hub system prompt to file and pass via cat subshell
+    local hub_prompt_file="$SUSSMOST_CONFIG_DIR/prompts/hub.txt"
+    mkdir -p "$SUSSMOST_CONFIG_DIR/prompts"
+    _write_hub_prompt "$hub_prompt_file"
+
+    # Launch Claude with remote-control and system prompt
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
-        "claude --session-id '${hub_uuid}' --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
+        "claude --session-id '${hub_uuid}' --append-system-prompt \"\$(cat '${hub_prompt_file}')\" remote-control --name 'sussmost-hub'" Enter
 
     _info "hub started"
     _info "connect via Claude app to manage sessions remotely"
@@ -315,8 +330,13 @@ _hub_recover() {
         resume_flag="--resume '${hub_uuid}'"
     fi
 
+    # Write hub system prompt to file
+    local hub_prompt_file="$SUSSMOST_CONFIG_DIR/prompts/hub.txt"
+    mkdir -p "$SUSSMOST_CONFIG_DIR/prompts"
+    _write_hub_prompt "$hub_prompt_file"
+
     tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
-        "claude ${resume_flag} --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\" remote-control --name \"sussmost-hub\"" Enter
+        "claude ${resume_flag} --append-system-prompt \"\$(cat '${hub_prompt_file}')\" remote-control --name 'sussmost-hub'" Enter
 
     _info "hub recovered"
 }
@@ -526,10 +546,10 @@ cmd_add() {
     # Create new tmux window
     tmux new-window -t "$tmux_name" -n "$worktree_name" -c "$repo_path"
 
-    # Build system prompt with worktree/session names substituted
-    local feature_prompt
-    feature_prompt="${SUSSMOST_FEATURE_PROMPT//<WORKTREE>/$worktree_name}"
-    feature_prompt="${feature_prompt//<SESSION>/$session_name}"
+    # Write system prompt to file (avoids quoting issues with tmux send-keys)
+    local prompt_file="$SUSSMOST_CONFIG_DIR/prompts/${session_name}--${worktree_name}.txt"
+    mkdir -p "$SUSSMOST_CONFIG_DIR/prompts"
+    _write_feature_prompt "$worktree_name" "$session_name" "$prompt_file"
 
     # Generate session UUID for resumability
     local session_uuid
@@ -537,7 +557,7 @@ cmd_add() {
 
     # Launch Claude in worktree with remote-control and lifecycle system prompt
     tmux send-keys -t "${tmux_name}:${worktree_name}" \
-        "claude -w '${worktree_name}' --session-id '${session_uuid}' --append-system-prompt \"${feature_prompt}\" remote-control --name '${session_name}/${worktree_name}'" Enter
+        "claude -w '${worktree_name}' --session-id '${session_uuid}' --append-system-prompt \"\$(cat '${prompt_file}')\" remote-control --name '${session_name}/${worktree_name}'" Enter
 
     _add_window_meta "$session_name" "$idx" "$worktree_name"
     _set_session_uuid "$session_name" "$worktree_name" "$session_uuid"
@@ -847,9 +867,10 @@ _recover_run() {
             local wt
             wt=$(echo "$line" | sed 's/^window:[0-9]*=//')
 
-            local feature_prompt
-            feature_prompt="${SUSSMOST_FEATURE_PROMPT//<WORKTREE>/$wt}"
-            feature_prompt="${feature_prompt//<SESSION>/$name}"
+            # Write system prompt to file
+            local prompt_file="$SUSSMOST_CONFIG_DIR/prompts/${name}--${wt}.txt"
+            mkdir -p "$SUSSMOST_CONFIG_DIR/prompts"
+            _write_feature_prompt "$wt" "$name" "$prompt_file"
 
             # Resume by UUID if available, otherwise start fresh
             local resume_flag=""
@@ -861,7 +882,7 @@ _recover_run() {
 
             tmux new-window -t "$tmux_name" -n "$wt" -c "$repo_path"
             tmux send-keys -t "${tmux_name}:${wt}" \
-                "claude -w '${wt}' ${resume_flag} --append-system-prompt \"${feature_prompt}\" remote-control --name '${name}/${wt}'" Enter
+                "claude -w '${wt}' ${resume_flag} --append-system-prompt \"\$(cat '${prompt_file}')\" remote-control --name '${name}/${wt}'" Enter
             _info "  recovered window: ${name}/${wt}"
         done < <(_list_session_windows "$name")
 
