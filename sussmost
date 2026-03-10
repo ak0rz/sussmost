@@ -20,6 +20,48 @@ INSTALL_BASH_COMPLETIONS="$HOME/.local/share/bash-completion/completions"
 INSTALL_ZSH_COMPLETIONS="$HOME/.local/share/zsh/site-functions"
 INSTALL_FISH_COMPLETIONS="$HOME/.config/fish/completions"
 
+# System prompt for feature worktree windows
+# <WORKTREE> and <SESSION> are replaced at runtime
+read -r -d '' SUSSMOST_FEATURE_PROMPT <<'SYSPROMPT' || true
+You are working in a git worktree named "<WORKTREE>" in sussmost session "<SESSION>".
+
+== WORKTREE LIFECYCLE ==
+
+SETUP (run these steps when starting work):
+1. Initialize all submodules:
+   git submodule update --init --recursive
+2. Absorb submodule git dirs into the parent repo:
+   git submodule absorbgitdirs
+   This moves each submodule's .git directory into the parent's .git/modules/, replacing it with a gitfile pointer. This is CRITICAL — without it, submodule git data lives inside the worktree directory and will be permanently destroyed when the worktree is removed.
+3. Submodules will be in detached HEAD state pointing at the commit recorded by the parent repo. This is normal and expected.
+4. Create or check out your feature branch in this worktree.
+5. If submodules also need feature branches, check out the branch inside each submodule:
+   cd <submodule-path> && git checkout -b <branch> or git checkout <branch>
+
+WORKING:
+- Make changes in submodules first, commit inside the submodule, then return to the parent repo and stage the submodule reference update with git add <submodule-path>.
+- Each worktree has its own independent working directory for submodules, but they share git object storage. Your changes won't affect other worktrees.
+- If you switch branches and the new branch has different .gitmodules, re-run: git submodule update --init --recursive && git submodule absorbgitdirs
+
+CLEANUP (MANDATORY before worktree removal):
+You MUST complete ALL of these steps before allowing the worktree to be removed:
+1. Check all submodules for uncommitted changes:
+   git submodule foreach --recursive 'git status'
+   If any submodule has uncommitted work, commit it first.
+2. Check all submodules for unpushed commits:
+   git submodule foreach --recursive 'git log --oneline @{upstream}..HEAD 2>/dev/null || echo "no upstream"'
+3. Push all submodule branches that have changes:
+   Push submodules BEFORE the parent repo — otherwise the remote parent will reference submodule commits that don't exist on the remote yet.
+4. Push the parent repo's feature branch.
+5. Only after all pushes succeed, the worktree can be removed. Note: worktree removal with submodules requires git worktree remove --force.
+
+== IMPORTANT CORNER CASES ==
+- git worktree move does NOT work with submodules — never attempt it
+- Submodules are in detached HEAD by default — always check out a named branch before making changes, or your commits will be unreachable after switching away
+- After any branch switch, re-run git submodule update --init --recursive && git submodule absorbgitdirs to sync submodule state
+- For large submodules, use --depth=1 for shallow clones to save disk: git submodule update --init --recursive --depth=1
+SYSPROMPT
+
 # ---------------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------------
@@ -446,9 +488,14 @@ cmd_add() {
     # Create new tmux window
     tmux new-window -t "$tmux_name" -n "$worktree_name" -c "$repo_path"
 
-    # Launch Claude in worktree with remote-control
+    # Build system prompt with worktree/session names substituted
+    local feature_prompt
+    feature_prompt="${SUSSMOST_FEATURE_PROMPT//<WORKTREE>/$worktree_name}"
+    feature_prompt="${feature_prompt//<SESSION>/$session_name}"
+
+    # Launch Claude in worktree with remote-control and lifecycle system prompt
     tmux send-keys -t "${tmux_name}:${worktree_name}" \
-        "claude -w '${worktree_name}' remote-control --name '${session_name}/${worktree_name}'" Enter
+        "claude -w '${worktree_name}' remote-control --name '${session_name}/${worktree_name}' --append-system-prompt \"${feature_prompt}\"" Enter
 
     _add_window_meta "$session_name" "$idx" "$worktree_name"
     _info "added worktree window: ${session_name}/${worktree_name}"
@@ -757,9 +804,13 @@ _recover_run() {
             local wt
             wt=$(echo "$line" | sed 's/^window:[0-9]*=//')
 
+            local feature_prompt
+            feature_prompt="${SUSSMOST_FEATURE_PROMPT//<WORKTREE>/$wt}"
+            feature_prompt="${feature_prompt//<SESSION>/$name}"
+
             tmux new-window -t "$tmux_name" -n "$wt" -c "$repo_path"
             tmux send-keys -t "${tmux_name}:${wt}" \
-                "claude -w '${wt}' remote-control --resume --name '${name}/${wt}'" Enter
+                "claude -w '${wt}' remote-control --resume --name '${name}/${wt}' --append-system-prompt \"${feature_prompt}\"" Enter
             _info "  recovered window: ${name}/${wt}"
         done < <(_list_session_windows "$name")
 
