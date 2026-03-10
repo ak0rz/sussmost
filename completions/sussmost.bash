@@ -83,8 +83,8 @@ _sussmost_completions() {
                     # Second arg to add is the worktree name - no completion
                     return
                     ;;
-                stop)
-                    # Complete with window names from the session
+                stop|attach)
+                    # Complete with window/worktree names from the session
                     local session="${words[2]}"
                     local sf="$SUSSMOST_SESSIONS_DIR/$session"
                     if [[ -f "$sf" ]]; then

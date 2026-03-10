@@ -112,7 +112,7 @@ The hub Claude session has `sussmost` available as a tool and knows how to use i
 | `sussmost start <repo> [-w <worktree>]` | Start a tmux session for a repo |
 | `sussmost add [session] <worktree>` | Add a Claude worktree window |
 | `sussmost list` | List all sessions and windows |
-| `sussmost attach <session>` | Attach to a session |
+| `sussmost attach [session] [worktree]` | Attach to a session or specific worktree window |
 | `sussmost stop [session] [window]` | Stop a window or entire session |
 | `sussmost status` | Live status with process info |
 
@@ -123,6 +123,7 @@ Inside a sussmost tmux session, the session name is auto-detected — no need to
 ```bash
 # Inside the myapi session's control window:
 sussmost add new-feature      # instead of: sussmost add myapi new-feature
+sussmost attach new-feature   # instead of: sussmost attach myapi new-feature
 sussmost stop old-feature     # instead of: sussmost stop myapi old-feature
 ```
 

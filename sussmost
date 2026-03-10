@@ -472,20 +472,55 @@ cmd_list() {
 }
 
 cmd_attach() {
-    [[ $# -ge 1 ]] || _die "usage: sussmost attach <session-name>"
+    local session_name="" window_name=""
 
-    local session_name tmux_name
-    session_name="$(_sanitize_name "$1")"
+    case $# in
+        0)
+            # Auto-detect session
+            session_name="$(_detect_session)" || _die "usage: sussmost attach <session> [worktree]"
+            ;;
+        1)
+            # Could be session name, or worktree name with auto-detect
+            local arg="$1"
+            if _session_exists "$arg" || [[ -f "$(_session_file "$arg")" ]]; then
+                session_name="$arg"
+            else
+                session_name="$(_detect_session 2>/dev/null)" || _die "session not found: $arg"
+                window_name="$arg"
+            fi
+            ;;
+        2)
+            session_name="$1"
+            window_name="$2"
+            ;;
+        *)
+            _die "usage: sussmost attach [session] [worktree]"
+            ;;
+    esac
+
+    session_name="$(_sanitize_name "$session_name")"
+    local tmux_name
     tmux_name="$(_tmux_name "$session_name")"
 
     if ! _tmux_session_exists "$tmux_name"; then
         _die "session not running: $session_name"
     fi
 
+    # If a worktree/window is specified, validate it exists
+    if [[ -n "$window_name" ]]; then
+        window_name="$(_sanitize_name "$window_name")"
+        if ! tmux list-windows -t "$tmux_name" -F '#{window_name}' 2>/dev/null | grep -q "^${window_name}$"; then
+            _die "window not found: $window_name in session $session_name"
+        fi
+    fi
+
+    local target="$tmux_name"
+    [[ -n "$window_name" ]] && target="${tmux_name}:${window_name}"
+
     if [[ -n "${TMUX:-}" ]]; then
-        tmux switch-client -t "$tmux_name"
+        tmux switch-client -t "$target"
     else
-        tmux attach-session -t "$tmux_name"
+        tmux attach-session -t "$target"
     fi
 }
 
@@ -649,7 +684,7 @@ SESSION COMMANDS:
   start <repo> [-w <name>]   Start tmux session for a registered repo
   add [session] <worktree>   Add a Claude worktree window to a session
   list                       List all sessions and windows
-  attach <session>           Attach to a session's tmux
+  attach [session] [worktree] Attach to a session or specific worktree window
   stop [session] [window]    Stop a worktree window or entire session
   status                     Show live status of all sessions
 
