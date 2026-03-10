@@ -40,6 +40,8 @@ complete -c sussmost -n "__fish_use_subcommand" -a attach -d "Attach to a sessio
 complete -c sussmost -n "__fish_use_subcommand" -a stop -d "Stop a worktree window or session"
 complete -c sussmost -n "__fish_use_subcommand" -a status -d "Show live status"
 complete -c sussmost -n "__fish_use_subcommand" -a recover -d "Recover sessions after reboot/crash"
+complete -c sussmost -n "__fish_use_subcommand" -a update -d "Update sussmost from GitHub"
+complete -c sussmost -n "__fish_use_subcommand" -a completions -d "Install/update shell completions"
 complete -c sussmost -n "__fish_use_subcommand" -a help -d "Show help"
 complete -c sussmost -n "__fish_use_subcommand" -a version -d "Show version"
 

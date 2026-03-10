@@ -76,6 +76,8 @@ _sussmost() {
         'stop:Stop a worktree window or entire session'
         'status:Show live status of all sessions'
         'recover:Recover all sessions after reboot/crash'
+        'update:Update sussmost from GitHub'
+        'completions:Install/update shell completions'
         'help:Show help'
         'version:Show version'
     )
