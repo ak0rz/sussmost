@@ -204,6 +204,28 @@ _hub_stop() {
     fi
 }
 
+_hub_recover() {
+    _ensure_dirs
+
+    if _tmux_session_exists "$SUSSMOST_HUB_SESSION"; then
+        _info "hub already running"
+        return 1
+    fi
+
+    tmux new-session -d -s "$SUSSMOST_HUB_SESSION" -n "hub"
+
+    tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
+        "export SUSSMOST_SESSION=hub" Enter
+
+    tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
+        "clear && echo '=== sussmost hub (recovered) ===' && echo 'Resuming Claude remote-control session...' && echo ''" Enter
+
+    tmux send-keys -t "${SUSSMOST_HUB_SESSION}:hub" \
+        "claude remote-control --resume --name \"sussmost-hub\" --append-system-prompt \"You are the sussmost hub controller. You have the 'sussmost' CLI tool available to manage remote Claude sessions. Use it to: register repos (sussmost repo add/clone/list), start repo sessions (sussmost start), add worktree windows (sussmost add), check status (sussmost status), and stop sessions (sussmost stop). Always run sussmost commands to fulfill user requests about managing repos and Claude sessions.\"" Enter
+
+    _info "hub recovered"
+}
+
 # ---------------------------------------------------------------------------
 # Repo commands
 # ---------------------------------------------------------------------------
@@ -659,6 +681,120 @@ cmd_status() {
     fi
 }
 
+cmd_recover() {
+    local subcmd="${1:-}"
+
+    case "$subcmd" in
+        enable)  _recover_enable ;;
+        disable) _recover_disable ;;
+        "")      _recover_run ;;
+        *)       _die "usage: sussmost recover [enable|disable]" ;;
+    esac
+}
+
+_recover_run() {
+    _ensure_dirs
+    local recovered=0 skipped=0 failed=0
+
+    # Recover hub
+    if _hub_recover; then
+        ((recovered++))
+    else
+        ((skipped++))
+    fi
+
+    # Recover repo sessions from metadata files
+    for sf in "$SUSSMOST_SESSIONS_DIR"/*; do
+        [[ -f "$sf" ]] || continue
+        local name
+        name="$(basename "$sf")"
+        local tmux_name
+        tmux_name="$(_tmux_name "$name")"
+
+        if _tmux_session_exists "$tmux_name"; then
+            _info "session '$name' already running, skipping"
+            ((skipped++))
+            continue
+        fi
+
+        local repo_path
+        repo_path=$(grep '^repo=' "$sf" 2>/dev/null | head -1 | cut -d= -f2- || true)
+        if [[ -z "$repo_path" || ! -d "$repo_path" ]]; then
+            _warn "skipping session '$name': repo path missing or invalid (${repo_path:-empty})"
+            ((failed++))
+            continue
+        fi
+
+        _info "recovering session: $name"
+
+        # Recreate tmux session with control window
+        tmux new-session -d -s "$tmux_name" -n "control" -c "$repo_path"
+
+        tmux send-keys -t "${tmux_name}:control" \
+            "export SUSSMOST_SESSION='${name}'" Enter
+
+        tmux send-keys -t "${tmux_name}:control" \
+            "clear && echo '=== sussmost: ${name} (recovered) ===' && echo 'Repo: ${repo_path}' && echo ''" Enter
+
+        # Recreate worktree windows with --resume
+        while IFS= read -r line; do
+            [[ -z "$line" ]] && continue
+            local wt
+            wt=$(echo "$line" | sed 's/^window:[0-9]*=//')
+
+            tmux new-window -t "$tmux_name" -n "$wt" -c "$repo_path"
+            tmux send-keys -t "${tmux_name}:${wt}" \
+                "claude -w '${wt}' remote-control --resume --name '${name}/${wt}'" Enter
+            _info "  recovered window: ${name}/${wt}"
+        done < <(_list_session_windows "$name")
+
+        ((recovered++))
+    done
+
+    echo ""
+    _info "recovery complete: $recovered recovered, $skipped already running, $failed failed"
+}
+
+_recover_enable() {
+    local systemd_dir="$HOME/.config/systemd/user"
+    mkdir -p "$systemd_dir"
+
+    cat > "$systemd_dir/sussmost-recover.service" <<'EOF'
+[Unit]
+Description=Recover sussmost tmux sessions
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/sussmost recover
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+EOF
+
+    cat > "$systemd_dir/sussmost-recover.timer" <<'EOF'
+[Unit]
+Description=Periodically check and recover sussmost sessions
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
+    systemctl --user daemon-reload
+    systemctl --user enable --now sussmost-recover.timer
+    _info "auto-recovery enabled (checks every 60s)"
+}
+
+_recover_disable() {
+    systemctl --user disable --now sussmost-recover.timer 2>/dev/null || true
+    local systemd_dir="$HOME/.config/systemd/user"
+    rm -f "$systemd_dir/sussmost-recover.service" "$systemd_dir/sussmost-recover.timer"
+    systemctl --user daemon-reload
+    _info "auto-recovery disabled"
+}
+
 cmd_help() {
     cat <<'HELP'
 sussmost - Remote Claude Tmux Session Manager
@@ -687,6 +823,9 @@ SESSION COMMANDS:
   attach [session] [worktree] Attach to a session or specific worktree window
   stop [session] [window]    Stop a worktree window or entire session
   status                     Show live status of all sessions
+  recover                    Recover all sessions after reboot/crash
+  recover enable             Enable auto-recovery via systemd timer
+  recover disable            Disable auto-recovery
 
 OTHER:
   help                       Show this help
@@ -742,6 +881,7 @@ main() {
         attach)  cmd_attach "$@" ;;
         stop)    cmd_stop "$@" ;;
         status)  cmd_status "$@" ;;
+        recover) cmd_recover "$@" ;;
         help|-h|--help)    cmd_help ;;
         version|--version) cmd_version ;;
         "")      cmd_help ;;

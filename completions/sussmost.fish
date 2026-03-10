@@ -39,6 +39,7 @@ complete -c sussmost -n "__fish_use_subcommand" -a list -d "List all sessions an
 complete -c sussmost -n "__fish_use_subcommand" -a attach -d "Attach to a session or worktree window"
 complete -c sussmost -n "__fish_use_subcommand" -a stop -d "Stop a worktree window or session"
 complete -c sussmost -n "__fish_use_subcommand" -a status -d "Show live status"
+complete -c sussmost -n "__fish_use_subcommand" -a recover -d "Recover sessions after reboot/crash"
 complete -c sussmost -n "__fish_use_subcommand" -a help -d "Show help"
 complete -c sussmost -n "__fish_use_subcommand" -a version -d "Show version"
 
@@ -69,3 +70,7 @@ complete -c sussmost -n "__fish_seen_subcommand_from attach; and test (count (co
 # stop: complete with session names, then worktree names
 complete -c sussmost -n "__fish_seen_subcommand_from stop; and test (count (commandline -opc)) -eq 2" -a "(__sussmost_sessions)" -d "Session"
 complete -c sussmost -n "__fish_seen_subcommand_from stop; and test (count (commandline -opc)) -eq 3" -a "(__sussmost_windows (commandline -opc)[3])" -d "Worktree"
+
+# recover subcommands
+complete -c sussmost -n "__fish_seen_subcommand_from recover; and not __fish_seen_subcommand_from enable disable" -a enable -d "Enable auto-recovery via systemd timer"
+complete -c sussmost -n "__fish_seen_subcommand_from recover; and not __fish_seen_subcommand_from enable disable" -a disable -d "Disable auto-recovery"

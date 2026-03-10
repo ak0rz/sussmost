@@ -75,6 +75,7 @@ _sussmost() {
         'attach:Attach to a session or worktree window'
         'stop:Stop a worktree window or entire session'
         'status:Show live status of all sessions'
+        'recover:Recover all sessions after reboot/crash'
         'help:Show help'
         'version:Show version'
     )
@@ -113,6 +114,15 @@ _sussmost() {
                 _sussmost_sessions
             elif (( CURRENT == 4 )); then
                 _sussmost_windows "$words[3]"
+            fi
+            ;;
+        recover)
+            if (( CURRENT == 3 )); then
+                local -a recover_subcmds=(
+                    'enable:Enable auto-recovery via systemd timer'
+                    'disable:Disable auto-recovery'
+                )
+                _describe 'recover command' recover_subcmds
             fi
             ;;
     esac
