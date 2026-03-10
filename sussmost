@@ -15,6 +15,10 @@ SUSSMOST_REPOS_FILE="$SUSSMOST_CONFIG_DIR/repos"
 SUSSMOST_CLONE_DIR="${SUSSMOST_CLONE_DIR:-$HOME/.local/share/sussmost/repos}"
 SUSSMOST_PREFIX="sussmost-"
 SUSSMOST_HUB_SESSION="${SUSSMOST_PREFIX}hub"
+GITHUB_RAW_BASE="https://raw.githubusercontent.com/ak0rz/sussmost/main"
+INSTALL_BASH_COMPLETIONS="$HOME/.local/share/bash-completion/completions"
+INSTALL_ZSH_COMPLETIONS="$HOME/.local/share/zsh/site-functions"
+INSTALL_FISH_COMPLETIONS="$HOME/.config/fish/completions"
 
 # ---------------------------------------------------------------------------
 # Utility functions
@@ -23,6 +27,17 @@ SUSSMOST_HUB_SESSION="${SUSSMOST_PREFIX}hub"
 _die() {
     echo "sussmost: error: $*" >&2
     exit 1
+}
+
+_fetch() {
+    local url="$1" dest="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$url" -o "$dest"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -qO "$dest" "$url"
+    else
+        _die "neither curl nor wget found"
+    fi
 }
 
 _warn() {
@@ -795,6 +810,81 @@ _recover_disable() {
     _info "auto-recovery disabled"
 }
 
+cmd_completions() {
+    local installed=()
+
+    # bash (always attempt — installer itself is bash)
+    mkdir -p "$INSTALL_BASH_COMPLETIONS"
+    if _fetch "$GITHUB_RAW_BASE/completions/sussmost.bash" "$INSTALL_BASH_COMPLETIONS/sussmost"; then
+        installed+=(bash)
+    else
+        _warn "could not download bash completions"
+    fi
+
+    # zsh
+    if command -v zsh >/dev/null 2>&1; then
+        mkdir -p "$INSTALL_ZSH_COMPLETIONS"
+        if _fetch "$GITHUB_RAW_BASE/completions/sussmost.zsh" "$INSTALL_ZSH_COMPLETIONS/_sussmost"; then
+            installed+=(zsh)
+        else
+            _warn "could not download zsh completions"
+        fi
+    fi
+
+    # fish
+    if command -v fish >/dev/null 2>&1; then
+        mkdir -p "$INSTALL_FISH_COMPLETIONS"
+        if _fetch "$GITHUB_RAW_BASE/completions/sussmost.fish" "$INSTALL_FISH_COMPLETIONS/sussmost.fish"; then
+            installed+=(fish)
+        else
+            _warn "could not download fish completions"
+        fi
+    fi
+
+    if [[ ${#installed[@]} -gt 0 ]]; then
+        _info "installed completions for: ${installed[*]}"
+    else
+        _warn "no completions installed"
+    fi
+}
+
+cmd_update() {
+    # Find current binary path
+    local bin_path
+    bin_path="$(realpath "$0" 2>/dev/null)" || bin_path="$(command -v sussmost)" || _die "cannot determine sussmost binary path"
+
+    _info "updating sussmost..."
+
+    # Download to temp file
+    local tmp
+    tmp="$(mktemp)"
+    trap "rm -f '$tmp'" EXIT
+
+    _fetch "$GITHUB_RAW_BASE/sussmost" "$tmp" || _die "download failed"
+
+    # Verify download
+    if [[ ! -s "$tmp" ]]; then
+        _die "downloaded file is empty"
+    fi
+    if ! head -1 "$tmp" | grep -q '^#!/'; then
+        _die "downloaded file does not look like a script"
+    fi
+
+    # Replace binary
+    cp "$tmp" "$bin_path"
+    chmod +x "$bin_path"
+    rm -f "$tmp"
+    trap - EXIT
+
+    _info "binary updated: $bin_path"
+
+    # Update completions
+    cmd_completions
+
+    # Print new version
+    "$bin_path" version
+}
+
 cmd_help() {
     cat <<'HELP'
 sussmost - Remote Claude Tmux Session Manager
@@ -828,6 +918,8 @@ SESSION COMMANDS:
   recover disable            Disable auto-recovery
 
 OTHER:
+  update                     Update sussmost from GitHub (includes completions)
+  completions                Install/update shell completions
   help                       Show this help
   version                    Show version
 
@@ -882,6 +974,8 @@ main() {
         stop)    cmd_stop "$@" ;;
         status)  cmd_status "$@" ;;
         recover) cmd_recover "$@" ;;
+        update)      cmd_update "$@" ;;
+        completions) cmd_completions "$@" ;;
         help|-h|--help)    cmd_help ;;
         version|--version) cmd_version ;;
         "")      cmd_help ;;

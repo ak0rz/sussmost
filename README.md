@@ -124,6 +124,13 @@ The hub Claude session has `sussmost` available as a tool and knows how to use i
 | `sussmost recover enable` | Enable auto-recovery via systemd timer (checks every 60s) |
 | `sussmost recover disable` | Disable auto-recovery |
 
+### Other
+
+| Command | Description |
+|---------|-------------|
+| `sussmost update` | Update sussmost from GitHub (includes completions) |
+| `sussmost completions` | Install/update shell completions |
+
 ### Auto-detection
 
 Inside a sussmost tmux session, the session name is auto-detected — no need to repeat it:
